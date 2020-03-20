@@ -1,6 +1,6 @@
 import pandas as pd
 import os,sys,glob,psutil,shutil
-import multiprocessing
+from multiprocessing import Pool,Process,Queue
 #lists
 rec_n = []
 lig_n = []
@@ -31,8 +31,7 @@ def reading_DB(x):
     return ffreq,hla,seqlen,o_seq
 def reT(x):
     nam = x.split('.')
-    num = nam[3]
-    nam1 = '.'.join([nam[0], nam[3], nam[2]]))
+    nam1 = '.'.join([nam[0], nam[3], nam[2]])
     Olines = []
     recl = []
     pepl = []
@@ -90,7 +89,7 @@ def revise_origin(x):
 
 def atom_revise(x):
     nam = x.split('.')
-    revnam = '.'.join([nam[0],nam[1],'rev',nam[3]]
+    revnam = '.'.join([nam[0],nam[1],'rev',nam[3]])
     rnn = 1
     nnn = 1
     olig_ser = {}
@@ -135,27 +134,47 @@ def atom_revise(x):
             W.write(i[:7] + j.rjust(4) + '  ' + i[13:21] + 'B ' + i[23:] + '\n')
         W.write('END\n')
 
-def txt_writing(x):
-    ff_list = []
-    hh_list = []
-    tt_acc = []
-    tt_phi = []
-    tt_psi = []
+def sheba_enva(x):
+    nam = x.split('.')
+    num = nam[1]
+    nana = pdbid + '_' + num
+    namtrf = '.'.join([nam[0],nam[1],nam[2],'trf'])
+    outform1 = pdbid + '_' + num + '.pdb'
+    outform2 = pdbid + '_' + num + '_new.pdb'
+    outform3 = pdbid + '_' + num + '_het.pdb'
+    os.system('sheba_01 -x ' + refer + ' ' + nam)
+    os.system('sheba_01 -t ' + namtrf + ' ' + nam)
+    shutil.move(nam + '.pdb',outform1)
+    os.system('python clean_pdb.py ' + outform1 + ' B')
+    os.system('csplit -f \'%s_\' %s.pdb \'/TER/\' --quiet')
+    os.system('cat %s_rec.pdb %s_B.pdb > %s_new.pdb')
+    os.system('sed \'s/ATOM  /HETATM/\' %s_01 > %s_02')
+    os.system('cat %s_rec.pdb %s_02 > %s_het.pdb')
+
+    if not os.path.exists(nana + '_a.out'):
+        os.system('enva.v2 -a ' + outform2 + ' > ' + nana + '_a.out')
+    if not os.path.exists(nana + '_b.out'):
+        os.system('enva.v2 -b ' + outform3 + ' > ' + nana + '_b.out')
+    if not os.path.exists(nana + '_m.out'):
+        os.system('enva.v2 -m ' + outform2 + ' ' + pdbid +  'B > ' + nana + '_m.out' )
+    os.system('enva.v2 -e ' + outform2 + ' B')
+
+def rmsd_part(x):
+    for i in sorted(glob.glob('*rev.pdb')):
+        os.system('csplit -f \'' + i + '_\'' + i + ' \'/TER/\' --quiet')
+        os.system('rmsd_total ' + PEPLIB + '/' + pdbid + '_pep.pdb ' + i + '_01 bb >> ' + x + '_rmsd.txt')
+        shutil.copy(x + '_rmsd.txt','../' + RES + '_energy_matrix/')
+def nac_sk_part(x):
+    pdbl = []
     mat_lst = []
-    ave_acc = []
+    newl = []
+    tttt = []
     tot_lig_acc = 0
     ave_lig_acc = 0
     tot_lig_num = 0
-    pdbl = []
-    tttt = []
-    newl = []
-
-    for i in sorted(glob.glob('*rev.pdb')):
-        os.system('csplit -f \'' + i + '_\' ' + i + ' \'/TER/\' --quiet')
-        os.system('rmsd_total ' + PEPLIB + '/' + pdbid + '_pep.pdb ' + i + '_01 bb >> ' + x + '_rmsd.txt')
-    for f, g in zip(sorted(glob.glob('*a.out')), sorted(glob.glob('*m.out'))):
+    for f, g in zip(sorted(glob.glob('*a.out')),sorted(glob.glob('*m.out'))):
         sidx = []
-        pdb = '_'.join([pdbid, str(x),f.split('.')[0].split('_')[6]])
+        pdb = '_'.join([pdbid, str(x), f.split('.')[0].split('_')[6]])
         pdbl.append(pdb)
         adf = pd.read_csv(f, sep='\s+', skiprows=[0, 0], header=None)
         mdf = pd.read_csv(g, sep='\s+', header=None)
@@ -185,8 +204,7 @@ def txt_writing(x):
             with open(pdb.split('.')[0] + '.ser', 'w') as W:
                 for sid in list(set(sidx)):
                     W.write(str(sid) + '\n')
-        iskew_cmd = 'iskew ' + pdb.split('.')[0] + '.ser >> total_' + x + '_sk.txt'
-        subprocess.call(iskew_cmd, shell=True)
+        os.system('iskew ' + pdb.split('.')[0] + '.ser >> total_' + x + '_sk.txt')
         ratio = float(num) / float(len(rfeats))
         mat_lst.append(ratio)
     new_ac = pd.concat(newl)
@@ -195,9 +213,12 @@ def txt_writing(x):
     new_ac['%Match'] = mat_lst
     new_ac['PDB'] = pdbl
     new_ac.set_index('PDB').reset_index()
+    new_ac.to_csv(x + '_nac.txt', sep='\t', index=False
+    shutil.copy(x + '_nac.txt','../' + RES + '_energy_matrix/')
+def hh_part(x):
+    ff_list = []
+    hh_list = []
 
-    new_ac.to_csv(x + '_nac.txt', sep='\t', index=False)
-    nn_list = []
     for f in sorted(glob.glob('*b.out')):
         with open(f, 'r') as F:
             n = 0
@@ -213,10 +234,14 @@ def txt_writing(x):
         W.write('PDB\tN.of.BB_full\tN.of.BB_feat\n')
         for i, j, k in zip(ff_list, hh_list, nn_list):
             W.write(str(i) + '\t' + str(j) + '\t' + str(k) + '\n')
+    shutil.copy(x + '_hh.txt','../' + RES + '_energy_matrix/')
+def ac_part(x):
+    tt_acc = []
+    tt_phi = []
+    tt_psi = []
     acc_columns = ['P%d' % i for i in range(1, seqlen + 1)]
     phi_columns = ['PHI%d' % i for i in range(1, seqlen + 1)]
     psi_columns = ['PSI%d' % i for i in range(1, seqlen + 1)]
-    pdbl = []
     for f in sorted(glob.glob('*.env')):
         pdb = '_'.join([pdbid, str(x), f.split('.')[0].split('_')[6]])
         pdbl.append(pdb)
@@ -239,44 +264,22 @@ def txt_writing(x):
     psi_df = pd.concat(tt_psi, ignore_index=True).reindex()
     act_df = pd.concat([pdbdf, acc_df, phi_df, psi_df], axis=1)
     act_df.to_csv(x + '_ac_ct.txt', sep='\t', index=False)
+    shutil.copy(x + '_ac_ct.txt','energy_matrix/')
 
-def sheba_enva(x):
-    nam = x.split('.')
-    num = nam[1]
-    nana = pdbid + '_' + num
-    namtrf = '.'.join([nam[0],nam[1],nam[2],'trf'])
-    outform1 = pdbid + '_' + num + '.pdb'
-    outform2 = pdbid + '_' + num + '_new.pdb'
-    outform3 = pdbid + '_' + num + '_het.pdb'
-    os.system('sheba_01 -x ' + refer + ' ' + nam)
-    os.system('sheba_01 -t ' + namtrf + ' ' + nam)
-    shutil.move(nam + '.pdb',outform1)
-    os.system('python clean_pdb.py ' + outform1 + ' B')
-    os.system('csplit -f \'%s_\' %s.pdb \'/TER/\' --quiet')
-    os.system('cat %s_rec.pdb %s_B.pdb > %s_new.pdb')
-    os.system('sed \'s/ATOM  /HETATM/\' %s_01 > %s_02')
-    os.system('cat %s_rec.pdb %s_02 > %s_het.pdb')
-
-    if not os.path.exists(nana + '_a.out'):
-        os.system('enva.v2 -a ' + outform2 + '> ' + nana + '_a.out')
-    if not os.path.exists(nana + '_b.out'):
-        os.system('enva.v2 -b ' + outform3 + '> ' + nana + '_b.out')
-    if not os.path.exists(nana + '_m.out'):
-        os.system('enva.v2 -m ' + outform2 + ' ' + pdbid +  'B > ' + nana + '_m.out' )
-    os.system('enva.v2 -e ' + outform2 + ' B')
+pdbid = sys.argv[1]
+infile = sys.argv[2]
+(ffreq,hla,seqlen,o_seq) = reading_DB(infile)
 
 os.environ['neogear'] = '/awork06-1/neoscan_gear/'
 gear = os.environ['neogear']
 os.environ['PATH'] += ':' + os.environ['PATH'] + ':' + gear
-PDBLIB = '/awork06-1/YKLee/hla_class2/' + ffreq + '/' +
-RECLIB = '/awork06-1/YKLee/hla_class2/' + ffreq + '/' +
-PEPLIB = '/awork06-1/YKLee/hla_class2/' + ffreq + '/' +
-pdbid = sys.argv[1]
-infile = sys.argv[2]
-(ffreq,hla,seqlen,o_seq) = reading_DB(infile)
-refer = PDBLIB + '/' + inpdb + '_native.pdb'
+PDBLIB = '/awork06-1/YKLee/final_class2/' + ffreq + '/' + hla + '/minimize/'
+RECLIB = '/awork06-1/YKLee/final_class2/' + ffreq + '/' + hla + '/minimize/'
+PEPLIB = '/awork06-1/YKLee/final_class2/' + ffreq + '/' + hla + '/minimize/'
+
+refer = PDBLIB + '/' + pdbid + '_native.pdb'
 ncpu = str(psutil.cpu_count() - 1)
-feats = pd.read_csv(PDBLIB + '/' + hla + '_native/' + pdbid + '.out',sep='\t',header=None)
+feats = pd.read_csv(PDBLIB  + pdbid + '.out',sep='\t',header=None)
 feats_filt = feats[feats[17] == 1].iloc[:,13:16]
 for i in feats_filt.values.tolist():
     rfeats.append(str(i[0]) + '_' + '_'.join(i[1:]))
@@ -285,3 +288,30 @@ for i in feats1_filt.values.tolist():
     rfeats1.append(str(i[0]) + '_' + '_'.join(i[2:]))
 for i,j in zip(rfeats,rfeats1):
     cc_dic[i] = j
+
+os.chdir('traj_1/pdb_from_prod/')
+list1 = sorted(glob.glob('*.pdb.*'))
+pool = Pool(ncpu)
+pool.map(reT,list1)
+pool.close()
+pool.join()
+list2 = sorted(glob.glob('*.rev.*'))
+pool2 = Pool(ncpu)
+pool2.map(sheba_enva,list2)
+pool2.close()
+pool2.join()
+proc_one = Process(target=rmsd_part,args=('traj_1',))
+proc_two = Process(target=nac_sk_part,args=('traj_1',))
+proc_three = Process(target=hh_part,args=('traj_1',))
+proc_four = Process(target=ac_part,args=('traj_1',))
+
+proc_one.start()
+proc_two.start()
+proc_three.start()
+proc_four.start()
+
+proc_one.join()
+proc_two.join()
+proc_three.join()
+proc_four.join()
+
